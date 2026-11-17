@@ -8,6 +8,7 @@ A game-playing agent for **Chess Fragments**, a chess variant on a reduced board
 
 - **Minimax with alpha-beta pruning,** written as separate max and min functions
 - **Iterative deepening** inside the per-move time budget, so it always has a best move ready
+- **Aspiration windows** that search a narrow score range around the previous depth's result and re-search with a full window if the score falls outside it
 - **Transposition table** keyed by a position hash, storing exact, lower and upper bounds
 - **Principal variation table** that tries the previous iteration's best move first
 - **Move ordering:** PV move first, then MVV-LVA (most valuable victim, least valuable attacker) for captures
@@ -22,4 +23,4 @@ Requires Python 3.11+ and the [`chessmaker`](https://pypi.org/project/chessmaker
 pip install chessmaker
 ```
 
-Put `agent.py` into the coursework support package (`CW-COMP2321-fullgame`) and run its `test_fullgame.py`, which plays the agent against the provided opponent.
+Put `agent.py` into the coursework support package (`CW-COMP2321-fullgame`) and run its `test_fullgame.py`, which plays the agent against the provided opponent. Set `DEBUG = True` at the top of `agent.py` to print the search depth and scores for each move.

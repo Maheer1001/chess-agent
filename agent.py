@@ -1,8 +1,5 @@
-import random
 import time
-from opponent import opponent
-from extension.board_utils import list_legal_moves_for, take_notes, \
-    copy_piece_move
+from extension.board_utils import list_legal_moves_for, copy_piece_move
 
 infinity = float("inf")
 _material_cache = {}
@@ -10,6 +7,13 @@ transposition_table = {}
 pv_table = {}  # Principal variation table for move ordering
 start_time = 0
 time_limit = 0
+
+DEBUG = False  # set True to print search progress
+
+
+def log(message):
+    if DEBUG:
+        print(message)
 
 
 # region Utilities
@@ -21,25 +25,6 @@ def check_square(board, x, y):
     if square and square.piece:
         return square.piece.name.lower()
     return None
-
-
-def extract(board, legal):
-    """
-    Prints legal moves for debugging. Returns list of move dictionaries.
-    """
-    moves = []
-    for piece, move in legal:
-        move_info = {
-            "position": (piece.position.x, piece.position.y),
-            "piece": piece.name.lower(),
-            "value": material_assignment(piece.name.lower()),
-            "move": (move.position.x, move.position.y),
-            "captures": check_square(board, move.position.x, move.position.y),
-            "extra": move.extra if hasattr(move, 'extra') else None
-        }
-        print(move_info)
-        moves.append(move_info)
-    return moves
 
 
 def material_assignment(piece):
@@ -529,17 +514,15 @@ def agent(board, player, var):
     Main agent function. Uses iterative deepening with aspiration windows.
     Searches progressively deeper until time limit approached.
     """
-    global start_time, time_limit, pv_table
+    global start_time, time_limit
 
     ply, thinking_time = var[0], var[1]
     start_time = time.time()
     time_limit = thinking_time
 
-    print(f"Ply: {ply}, Time: {thinking_time}s, Turn: {player.name}")
+    log(f"Ply: {ply}, Time: {thinking_time}s, Turn: {player.name}")
 
     my_board = board.clone()
-    legal = list_legal_moves_for(board, player)
-    extract(board, legal)
 
     best_piece, best_move = None, None
     best_score = 0
@@ -574,13 +557,13 @@ def agent(board, player, var):
         if piece and move:
             best_piece, best_move = piece, move
             best_score = score
-            print(
-                f"Depth {depth}: score={score:.3f}, nodes_cached={len(transposition_table)}")
+            log(f"Depth {depth}: score={score:.3f}, "
+                f"nodes_cached={len(transposition_table)}")
 
         # Stop if checkmate found
         if abs(score) > 1000:
             break
 
-    print(f"Final: material={initial_material}, score={best_score:.3f}")
+    log(f"Final: material={initial_material}, score={best_score:.3f}")
     return best_piece, best_move
 # endregion
