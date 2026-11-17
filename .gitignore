@@ -1,0 +1,12 @@
+# Module-provided framework (not my code)
+extension/
+opponent.py
+samples.py
+test_fullgame.py
+COURSEWORK_BRIEF.md
+AGENT_API_REFERENCE.md
+
+# Runtime output
+notes_agent.txt
+__pycache__/
+.pytest_cache/
