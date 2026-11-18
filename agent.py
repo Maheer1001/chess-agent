@@ -10,6 +10,9 @@ transposition_table = {}
 pv_table = {}  # Principal variation table for move ordering
 start_time = 0
 time_limit = 0
+search_aborted = False  # set when the clock runs out mid-search
+MATE_SCORE = 10000  # side to move has no legal move (checkmate or stalemate: both lose)
+NULL_WINDOW = 0.001
 
 DEBUG = False  # set True to print search progress
 
@@ -54,9 +57,11 @@ def material_assignment(piece):
     return result
 
 
-def hash_position(board, player):
+def hash_position(board, player, to_move):
     """
     Creates hash key for board position. Used for transposition table lookups.
+    Includes the side to move, since the same layout has a different value
+    depending on whose turn it is.
     """
     pieces = []
     for y in range(5):
@@ -65,7 +70,7 @@ def hash_position(board, player):
             if square and square.piece:
                 piece = square.piece
                 pieces.append((x, y, piece.name.lower(), piece.player.name))
-    return hash((tuple(pieces), player.name))
+    return hash((tuple(pieces), player.name, to_move.name))
 
 
 def time_check():
@@ -74,6 +79,71 @@ def time_check():
     """
     elapsed = time.time() - start_time
     return elapsed > time_limit * 0.9
+
+
+def out_of_time():
+    """
+    time_check() for use inside the search: also marks the current
+    iteration as aborted so its partial result is thrown away.
+    """
+    global search_aborted
+    if search_aborted or time_check():
+        search_aborted = True
+    return search_aborted
+
+
+def is_first_pawn_move(piece):
+    return piece.name.lower() == "pawn" and getattr(piece, "_moved_turns_ago", None) == -1
+
+
+def _line_is_clear(board, x0, y0, x1, y1):
+    step_x = (x1 > x0) - (x1 < x0)
+    step_y = (y1 > y0) - (y1 < y0)
+    x, y = x0 + step_x, y0 + step_y
+    while (x, y) != (x1, y1):
+        if check_square(board, x, y):
+            return False
+        x, y = x + step_x, y + step_y
+    return True
+
+
+def in_check(board, side):
+    """
+    Returns True if side's king is attacked. Pure geometry on the squares,
+    much cheaper than generating the opponent's legal moves.
+    """
+    king = None
+    for piece in board.get_player_pieces(side):
+        if piece.name.lower() == "king":
+            king = piece
+            break
+    if king is None:
+        return False
+    kx, ky = king.position.x, king.position.y
+    for piece in board.get_pieces():
+        if piece.player.name == side.name:
+            continue
+        px, py = piece.position.x, piece.position.y
+        dx, dy = kx - px, ky - py
+        kind = piece.name.lower()
+        knight_jump = sorted((abs(dx), abs(dy))) == [1, 2]
+        straight = (dx == 0) != (dy == 0)
+        diagonal = dx != 0 and abs(dx) == abs(dy)
+        if kind == "knight" and knight_jump:
+            return True
+        if kind == "right" and (knight_jump or (straight and _line_is_clear(board, px, py, kx, ky))):
+            return True
+        if kind == "bishop" and diagonal and _line_is_clear(board, px, py, kx, ky):
+            return True
+        if kind == "queen" and (straight or diagonal) and _line_is_clear(board, px, py, kx, ky):
+            return True
+        if kind == "king" and max(abs(dx), abs(dy)) == 1:
+            return True
+        if kind == "pawn" and abs(dx) == 1:
+            forward = -1 if piece.player.name == "white" else 1
+            if dy == forward:
+                return True
+    return False
 
 
 # endregion
@@ -253,11 +323,13 @@ class MoveState:
     Stores information needed to unmake a move.
     """
 
-    def __init__(self, piece, orig_pos, dest_pos, captured_piece):
+    def __init__(self, piece, orig_pos, dest_pos, captured_piece,
+                 first_pawn_move=False):
         self.piece = piece
         self.orig_pos = orig_pos
         self.dest_pos = dest_pos
         self.captured_piece = captured_piece
+        self.first_pawn_move = first_pawn_move
 
 
 def make_move(board, piece, move):
@@ -271,9 +343,15 @@ def make_move(board, piece, move):
     captured_piece = None
     if dest_square and dest_square.piece:
         captured_piece = dest_square.piece
-    state = MoveState(piece, orig_pos, dest_pos, captured_piece)
+    # A pawn that has moved loses its two-square advance. Moving squares
+    # directly skips ChessMaker's bookkeeping, so mark it here.
+    first_pawn_move = is_first_pawn_move(piece)
+    state = MoveState(piece, orig_pos, dest_pos, captured_piece,
+                      first_pawn_move)
     original_square.piece = None
     dest_square.piece = piece
+    if first_pawn_move:
+        piece._moved_turns_ago = 2
     return state
 
 
@@ -288,6 +366,8 @@ def unmake_move(board, state):
     original_square.piece = piece
     if state.captured_piece:
         dest_square.piece = state.captured_piece
+    if state.first_pawn_move:
+        piece._moved_turns_ago = -1
 
 
 # endregion
@@ -300,11 +380,11 @@ def max_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
     late move reduction, and transposition tables.
     """
     search_stats["nodes"] += 1
-    if time_check():
+    if out_of_time():
         return alpha, None, None
 
     if not is_root:
-        position_key = hash_position(board, player)
+        position_key = hash_position(board, player, player)
         if position_key in transposition_table:
             cached_depth, cached_score, cached_type = transposition_table[
                 position_key]
@@ -320,21 +400,27 @@ def max_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
         position_score = evaluate_position(board, player)
         return material_evaluation + position_score, None, None
 
-    # Null move pruning: if passing gives beta cutoff, position is too good
-    if not is_root and depth >= 3 and material_evaluation > -2 and beta < infinity - 100:
-        null_score, _, _ = min_tree_value(board, ply + 1, player, -beta,
-                                          -beta + 1,
+    # Null move pruning: if passing still gives a beta cutoff, position is too
+    # good. Scores are always from the root player's view, so no negation.
+    # Skipped in check, where passing would leave the king en prise.
+    if not is_root and depth >= 3 and material_evaluation > -2 and beta < infinity - 100 \
+            and not in_check(board, player):
+        null_score, _, _ = min_tree_value(board, ply + 1, player,
+                                          beta - NULL_WINDOW, beta,
                                           depth - 3, material_evaluation,
                                           False)
-        null_score = -null_score
-        if null_score >= beta:
+        if null_score >= beta and not search_aborted:
             return beta, None, None
 
     best_piece, best_move = None, None
     moves = list_legal_moves_for(board, player)
+    if not moves:
+        # Checkmate or stalemate: both lose in this variant. Faster mates
+        # score higher for the winner.
+        return -MATE_SCORE + ply, None, None
 
     # Get PV move for this position if it exists
-    position_key = hash_position(board, player)
+    position_key = hash_position(board, player, player)
     pv_move = pv_table.get(position_key)
     moves = order_moves(player, board, moves, ply, pv_move)
 
@@ -358,13 +444,14 @@ def max_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
             else:
                 continue
         else:
+            # Must run before make_move: afterwards the destination square
+            # holds the moving piece, which would be counted as captured.
+            material_change = calculate_material_change(board, piece, move,
+                                                        player)
             state = make_move(board, piece, move)
             if not state:
                 continue
             try:
-                material_change = calculate_material_change(board, piece, move,
-                                                            player,
-                                                            state.captured_piece)
                 new_material_evaluation = material_evaluation + material_change
 
                 search_depth = depth - 1
@@ -377,9 +464,17 @@ def max_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
                 score, _, _ = min_tree_value(board, ply + 1, player, alpha,
                                              beta, search_depth,
                                              new_material_evaluation, False)
+                # A reduced move that beats alpha is re-searched at full depth
+                if search_depth < depth - 1 and score > alpha:
+                    score, _, _ = min_tree_value(board, ply + 1, player,
+                                                 alpha, beta, depth - 1,
+                                                 new_material_evaluation,
+                                                 False)
             finally:
                 unmake_move(board, state)
 
+        if search_aborted:
+            break
         if score > alpha:
             alpha = score
             if is_root:
@@ -390,8 +485,8 @@ def max_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
         if alpha >= beta:
             break
 
-    if not is_root:
-        position_key = hash_position(board, player)
+    if not is_root and not search_aborted:
+        position_key = hash_position(board, player, player)
         if alpha <= original_alpha:
             cache_type = 'upper'
         elif alpha >= beta:
@@ -410,11 +505,12 @@ def min_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
     late move reduction, and transposition tables.
     """
     search_stats["nodes"] += 1
-    if time_check():
+    if out_of_time():
         return beta, None, None
 
+    opponent = board.players[1] if player.name == "white" else board.players[0]
     if not is_root:
-        position_key = hash_position(board, player)
+        position_key = hash_position(board, player, opponent)
         if position_key in transposition_table:
             cached_depth, cached_score, cached_type = transposition_table[
                 position_key]
@@ -430,22 +526,24 @@ def min_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
         position_score = evaluate_position(board, player)
         return material_evaluation + position_score, None, None
 
-    # Null move pruning: if passing gives alpha cutoff, position is too bad
-    if not is_root and depth >= 3 and material_evaluation < 2 and alpha > -infinity + 100:
-        null_score, _, _ = max_tree_value(board, ply + 1, player, -beta,
-                                          -beta + 1,
+    # Null move pruning: if the opponent passing still gives an alpha cutoff,
+    # the position is too bad for them. Skipped when they are in check.
+    if not is_root and depth >= 3 and material_evaluation < 2 and alpha > -infinity + 100 \
+            and not in_check(board, opponent):
+        null_score, _, _ = max_tree_value(board, ply + 1, player,
+                                          alpha, alpha + NULL_WINDOW,
                                           depth - 3, material_evaluation,
                                           False)
-        null_score = -null_score
-        if null_score <= alpha:
+        if null_score <= alpha and not search_aborted:
             return alpha, None, None
 
     best_piece, best_move = None, None
-    opponent = board.players[1] if player.name == "white" else board.players[0]
     moves = list_legal_moves_for(board, opponent)
+    if not moves:
+        return MATE_SCORE - ply, None, None
 
     # Get PV move for this position if it exists
-    position_key = hash_position(board, player)
+    position_key = hash_position(board, player, opponent)
     pv_move = pv_table.get(position_key)
     moves = order_moves(opponent, board, moves, ply, pv_move)
 
@@ -469,13 +567,14 @@ def min_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
             else:
                 continue
         else:
+            # Must run before make_move: afterwards the destination square
+            # holds the moving piece, which would be counted as captured.
+            material_change = calculate_material_change(board, piece, move,
+                                                        player)
             state = make_move(board, piece, move)
             if not state:
                 continue
             try:
-                material_change = calculate_material_change(board, piece, move,
-                                                            player,
-                                                            state.captured_piece)
                 new_material_evaluation = material_evaluation + material_change
 
                 search_depth = depth - 1
@@ -488,9 +587,16 @@ def min_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
                 score, _, _ = max_tree_value(board, ply + 1, player, alpha,
                                              beta, search_depth,
                                              new_material_evaluation, False)
+                if search_depth < depth - 1 and score < beta:
+                    score, _, _ = max_tree_value(board, ply + 1, player,
+                                                 alpha, beta, depth - 1,
+                                                 new_material_evaluation,
+                                                 False)
             finally:
                 unmake_move(board, state)
 
+        if search_aborted:
+            break
         if score < beta:
             beta = score
             if is_root:
@@ -501,8 +607,8 @@ def min_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
         if beta <= alpha:
             break
 
-    if not is_root:
-        position_key = hash_position(board, player)
+    if not is_root and not search_aborted:
+        position_key = hash_position(board, player, opponent)
         if beta >= original_beta:
             cache_type = 'lower'
         elif beta <= alpha:
@@ -522,12 +628,16 @@ def agent(board, player, var):
     Main agent function. Uses iterative deepening with aspiration windows.
     Searches progressively deeper until time limit approached.
     """
-    global start_time, time_limit
+    global start_time, time_limit, search_aborted
 
     ply, thinking_time = var[0], var[1]
     start_time = time.time()
     time_limit = thinking_time
     search_stats.update(depth=0, score=0.0, nodes=0)
+    search_aborted = False
+    # Start each move with an empty table so nothing from an earlier,
+    # possibly interrupted, search is reused.
+    transposition_table.clear()
 
     log(f"Ply: {ply}, Time: {thinking_time}s, Turn: {player.name}")
 
@@ -556,11 +666,16 @@ def agent(board, player, var):
         )
 
         # Re-search with full window if score outside aspiration window
-        if (score <= alpha or score >= beta) and not time_check():
+        if (score <= alpha or score >= beta) and not search_aborted:
             score, piece, move = max_tree_value(
                 my_board, ply, player, -infinity, infinity, depth,
                 initial_material, is_root=True
             )
+
+        # An iteration cut off by the clock is incomplete: some of its scores
+        # are just the alpha/beta bounds returned by timed-out nodes.
+        if search_aborted:
+            break
 
         # Update best move if search completed successfully
         if piece and move:
@@ -573,6 +688,13 @@ def agent(board, player, var):
         # Stop if checkmate found
         if abs(score) > 1000:
             break
+
+    # Out of time before depth 1 finished: play the best-ordered legal move
+    if best_piece is None:
+        moves = order_moves(player, my_board,
+                            list_legal_moves_for(my_board, player), ply)
+        if moves:
+            best_piece, best_move = moves[0]
 
     log(f"Final: material={initial_material}, score={best_score:.3f}")
     return best_piece, best_move
