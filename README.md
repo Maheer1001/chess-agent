@@ -36,8 +36,6 @@ The standard starting position (`sample0`). Upper case is white, lower case is b
 
 ## How the agent searches
 
-`agent.py` is the coursework submission with the search bugs listed under [What was fixed](#what-was-fixed) corrected. The version I submitted is tagged [`as-submitted`](https://github.com/Maheer1001/chess-agent/tree/as-submitted).
-
 - **Minimax with alpha-beta pruning**, written as separate max and min functions. Scores are always from the root player's point of view.
 - **Iterative deepening** from depth 1 upwards inside the per-move time limit, so there is always a move from the last finished depth. It stops early once it finds a forced mate.
 - **Aspiration windows.** From depth 3 it searches a ±0.5 window around the previous depth's score and re-searches with a full window if the result falls outside.
@@ -99,50 +97,29 @@ ply   9  white (agent): Q 1,2 -> 1,1   [depth 2, score mate, 52 nodes, 0.10s]
 === Game ended: Checkmate - black loses ===
 ```
 
-Each agent gets a fresh copy of `agent.py`, so no state carries over between games or between the two sides in self-play. Like the coursework runner, a player that returns no move loses the game, and `play.py` reports this as `Resigned`. The as-submitted agent did this when it saw every move losing to a forced mate.
+Each agent gets a fresh copy of `agent.py`, so no state carries over between games or between the two sides in self-play. Like the coursework runner, a player that returns no move loses the game, and `play.py` reports this as `Resigned`.
 
 ## Results
 
 The agent played 20 games per opponent per colour (160 games in total), with 0.5 s per move, alternating `sample0` and `sample1`. Wins, draws and losses are from the agent's side.
 
-| Opponent | Agent plays | As submitted (W / D / L) | Fixed (W / D / L) | Avg depth, fixed | Nodes/s, fixed |
-|---|---|---:|---:|---:|---:|
-| random | white | 19 / 0 / 1 | **20 / 0 / 0** | 2.89 | 546 |
-| random | black | 15 / 0 / 5 | **20 / 0 / 0** | 2.86 | 520 |
-| greedy | white | 1 / 1 / 18 | **20 / 0 / 0** | 3.20 | 707 |
-| greedy | black | 2 / 0 / 18 | **19 / 1 / 0** | 2.97 | 596 |
-| **total** | | **37 / 1 / 42** | **79 / 1 / 0** | | |
+| Opponent | Agent plays | W / D / L | Avg depth | Nodes/s |
+|---|---|---:|---:|---:|
+| random | white | 20 / 0 / 0 | 2.89 | 546 |
+| random | black | 20 / 0 / 0 | 2.86 | 520 |
+| greedy | white | 20 / 0 / 0 | 3.20 | 707 |
+| greedy | black | 19 / 1 / 0 | 2.97 | 596 |
+| **total** | | **79 / 1 / 0** | | |
 
-To reproduce the fixed numbers:
+To reproduce:
 
 ```bash
 python tools/benchmark.py --games 20 --time 0.5 --seed 1
 ```
 
-To reproduce the as-submitted numbers, use commit `84de0d4`. It has the submitted search plus only the import fallback and stats hook this repo needs:
+Measured on a desktop PC (Windows 10, Python 3.12). Search speed is low, a few hundred nodes per second, because ChessMaker checks legality by cloning the board for every candidate move. The search is time-limited, so a rerun gives slightly different games.
 
-```bash
-git checkout 84de0d4 -- agent.py
-python tools/benchmark.py --games 20 --time 0.5 --seed 1
-git checkout HEAD -- agent.py
-```
-
-Measured on a desktop PC (Windows 10, Python 3.12). Search speed is low, a few hundred nodes per second, because ChessMaker checks legality by cloning the board for every candidate move. The as-submitted runs reported an average depth of about 4. That figure counted the last iteration even when the clock had cut it short, so it isn't comparable with the fixed column. The search is time-limited, so a rerun gives slightly different games.
-
-## What was fixed
-
-The first benchmark showed the as-submitted agent losing 36 of 40 games to the one-ply `greedy` opponent. Running the same agent in the official coursework runner gave the same picture, so the cause was the search, not this repo's rules engine. These bugs were fixed in one commit, keeping the original structure:
-
-1. **Interrupted iterations were trusted.** When time ran out, nodes returned their alpha/beta bound, often ±infinity. The move being searched at that moment then looked like a forced mate and replaced the last completed result. Iterations cut off by the clock are now thrown away.
-2. **The transposition table was never cleared and stored bounds from timed-out nodes.** Those bad bounds were reused on later moves. Nothing is stored after a timeout now, and the table is cleared at the start of each move.
-3. **Null-move pruning used negamax conventions in a plain-minimax search.** It negated scores and windows, although every score here is from the root player's view, so it pruned exactly when the position was bad. It now uses a null window at beta (max nodes) or alpha (min nodes) with no negation, and it's skipped when the side to move is in check.
-4. **Transposition keys ignored the side to move.** The same layout with white to move and with black to move shared one entry. The side to move is now part of the key.
-5. **Every quiet move was scored as a capture of the mover's own piece.** The material change was computed after `make_move`, when the destination square already held the moving piece. A Right move was worth +9. It's now computed before the move.
-6. **Pawns moved during the search kept their two-square first move,** which allowed impossible double steps and early promotions in the search tree.
-7. **All mates scored ±infinity.** If every move lost, nothing beat the starting alpha and the agent returned no move, which forfeits the game. With no distance to mate it also had no reason to mate quickly. Positions with no legal move now score ±(10000 − ply).
-8. **Late-move reductions were never verified.** A reduced move that scored above the bound was accepted at reduced depth. It's now re-searched at full depth.
-
-The fixed agent still wins its full game in the official coursework runner (`Checkmate - black loses`) with the official 14 s per-move budget, taking about 11 s per move.
+The agent also wins its full game in the official coursework runner (`Checkmate - black loses`) with the official 14 s per-move budget, taking about 11 s per move.
 
 ## Rules engine
 
