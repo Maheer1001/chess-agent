@@ -1,0 +1,4 @@
+# Python 3.11 or 3.12 (ChessMaker 0.5.0 does not run on 3.13+)
+chessmaker==0.5.0
+pillow
+pytest

@@ -1,0 +1,15 @@
+[project]
+name = "chess-agent"
+version = "1.0.0"
+description = "Alpha-beta search agent for Chess Fragments, a 5x5 chess variant"
+readme = "README.md"
+# ChessMaker 0.5.0 stacks @classmethod on @property, which Python 3.13 removed.
+requires-python = ">=3.11,<3.13"
+dependencies = ["chessmaker==0.5.0"]
+
+[project.optional-dependencies]
+dev = ["pillow", "pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
