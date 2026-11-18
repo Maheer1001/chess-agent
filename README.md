@@ -1,7 +1,5 @@
 # chess-agent
 
-A Chess Fragments agent.
-
 A game-playing agent for **Chess Fragments**, a chess variant on a reduced board with custom pieces (including a "Right" piece and queen-only pawn promotion). It plays complete games under a fixed thinking-time budget per move.
 
 > Coursework for the University of Southampton AI module (COMP2321, 2025). This repo contains only my agent (`agent.py`). The game framework (`extension/`, `opponent.py`, `samples.py`, `test_fullgame.py`) was provided by the module and isn't included.
