@@ -1,5 +1,8 @@
 import time
-from extension.board_utils import list_legal_moves_for, copy_piece_move
+try:  # inside the official COMP2321 framework
+    from extension.board_utils import list_legal_moves_for, copy_piece_move
+except ImportError:  # standalone: this repo's reimplementation of the rules
+    from fragments.board_utils import list_legal_moves_for, copy_piece_move
 
 infinity = float("inf")
 _material_cache = {}
@@ -9,6 +12,9 @@ start_time = 0
 time_limit = 0
 
 DEBUG = False  # set True to print search progress
+
+# Read-only stats from the most recent agent() call, used by play.py.
+search_stats = {"depth": 0, "score": 0.0, "nodes": 0}
 
 
 def log(message):
@@ -293,6 +299,7 @@ def max_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
     Maximizing player search. Uses alpha-beta pruning, null move pruning,
     late move reduction, and transposition tables.
     """
+    search_stats["nodes"] += 1
     if time_check():
         return alpha, None, None
 
@@ -402,6 +409,7 @@ def min_tree_value(board, ply, player, alpha, beta, depth, material_evaluation,
     Minimizing player search. Uses alpha-beta pruning, null move pruning,
     late move reduction, and transposition tables.
     """
+    search_stats["nodes"] += 1
     if time_check():
         return beta, None, None
 
@@ -519,6 +527,7 @@ def agent(board, player, var):
     ply, thinking_time = var[0], var[1]
     start_time = time.time()
     time_limit = thinking_time
+    search_stats.update(depth=0, score=0.0, nodes=0)
 
     log(f"Ply: {ply}, Time: {thinking_time}s, Turn: {player.name}")
 
@@ -557,6 +566,7 @@ def agent(board, player, var):
         if piece and move:
             best_piece, best_move = piece, move
             best_score = score
+            search_stats.update(depth=depth, score=score)
             log(f"Depth {depth}: score={score:.3f}, "
                 f"nodes_cached={len(transposition_table)}")
 
