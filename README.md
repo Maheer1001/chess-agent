@@ -1,4 +1,6 @@
-# Chess Fragments Agent
+# chess-agent
+
+A Chess Fragments agent.
 
 A game-playing agent for **Chess Fragments**, a chess variant on a reduced board with custom pieces (including a "Right" piece and queen-only pawn promotion). It plays complete games under a fixed thinking-time budget per move.
 
@@ -15,12 +17,35 @@ A game-playing agent for **Chess Fragments**, a chess variant on a reduced board
 - **Null-move pruning** at depth 3 and below when material allows
 - **Evaluation:** material balance plus piece-position terms, with incremental material deltas per move
 
-## Running it
+## Prerequisites
 
-Requires Python 3.11+ and the [`chessmaker`](https://pypi.org/project/chessmaker/) package:
+`agent.py` is not standalone. It imports `list_legal_moves_for` and `copy_piece_move` from `extension.board_utils`, which is part of the module's coursework support package (`CW-COMP2321-fullgame`), not this repo. That package defines the Chess Fragments board and pieces and provides the game runner. You need:
+
+- Python 3.11 or newer.
+- The [`chessmaker`](https://pypi.org/project/chessmaker/) package from PyPI.
+- The COMP2321 coursework support package, which contains `extension/`, `opponent.py`, `samples.py` and `test_fullgame.py`. It was distributed to students taking the module and isn't publicly available.
+
+No API keys are needed.
+
+## Run
+
+Copy `agent.py` into the root of the support package, next to `test_fullgame.py`, then from that folder:
 
 ```bash
-pip install chessmaker
+python -m venv .venv
+source .venv/Scripts/activate      # PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install chessmaker
+python test_fullgame.py
 ```
 
-Put `agent.py` into the coursework support package (`CW-COMP2321-fullgame`) and run its `test_fullgame.py`, which plays the agent against the provided opponent. Set `DEBUG = True` at the top of `agent.py` to print the search depth and scores for each move.
+`test_fullgame.py` plays the agent against the provided opponent. The framework calls `agent(board, player, var)`, where `var` is `[ply, thinking_time_seconds]`, and expects a `(piece, move)` pair back. Set `DEBUG = True` at the top of `agent.py` to print the search depth and score for each move.
+
+## Test
+
+The repo has no tests of its own, and without the support package the agent can only be syntax-checked:
+
+```bash
+python -m py_compile agent.py
+```
+
+Importing it (`python -c "import agent"`) fails with `ModuleNotFoundError: No module named 'extension'` unless the support package is present. Full games run through the package's `test_fullgame.py`, as above.

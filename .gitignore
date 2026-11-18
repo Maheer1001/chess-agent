@@ -10,3 +10,4 @@ AGENT_API_REFERENCE.md
 notes_agent.txt
 __pycache__/
 .pytest_cache/
+.venv/
