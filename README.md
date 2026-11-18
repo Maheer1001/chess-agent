@@ -19,28 +19,30 @@ A game-playing agent for **Chess Fragments**, a chess variant on a reduced board
 
 `agent.py` is not standalone. It imports `list_legal_moves_for` and `copy_piece_move` from `extension.board_utils`, which is part of the module's coursework support package (`CW-COMP2321-fullgame`), not this repo. That package defines the Chess Fragments board and pieces and provides the game runner. You need:
 
-- Python 3.11 or newer.
-- The [`chessmaker`](https://pypi.org/project/chessmaker/) package from PyPI.
-- The COMP2321 coursework support package, which contains `extension/`, `opponent.py`, `samples.py` and `test_fullgame.py`. It was distributed to students taking the module and isn't publicly available.
+- **Python 3.11 or 3.12, not 3.13 or newer.** ChessMaker defines `Piece.name` with `@classmethod` stacked on `@property`, which Python 3.13 removed. On 3.13 the first board print fails with `AttributeError: 'property' object has no attribute 'lower'`.
+- [ChessMaker](https://github.com/WolfDWyc/ChessMaker) by WolfDWyc (`pip install chessmaker`, tested with 0.5.0). This is the open-source, AGPL-3.0 chess engine the coursework framework is built on.
+- The COMP2321 coursework support package `CW-COMP2321-fullgame`, which contains `extension/`, `opponent.py`, `samples.py` and `test_fullgame.py`. It was distributed to students taking the module. The same `extension/` files are used by [Fragment Arena](https://github.com/Seggys116/chess-fragments-platform), a student-built tournament platform for this coursework that also runs agents on Python 3.12.
 
 No API keys are needed.
 
 ## Run
 
-Copy `agent.py` into the root of the support package, next to `test_fullgame.py`, then from that folder:
+Copy the support package's `extension/`, `opponent.py`, `samples.py` and `test_fullgame.py` into this folder, next to `agent.py`. `.gitignore` already excludes them. Then:
 
 ```bash
-python -m venv .venv
+py -3.12 -m venv .venv             # or: uv venv --python 3.12 .venv
 source .venv/Scripts/activate      # PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install chessmaker
 python test_fullgame.py
 ```
 
+Expected end of output: `=== Game ended: Checkmate - black loses ===`. The agent plays white against the module's opponent on `sample0`.
+
 `test_fullgame.py` plays the agent against the provided opponent. The framework calls `agent(board, player, var)`, where `var` is `[ply, thinking_time_seconds]`, and expects a `(piece, move)` pair back. Set `DEBUG = True` at the top of `agent.py` to print the search depth and score for each move.
 
 ## Test
 
-The repo has no tests of its own, and without the support package the agent can only be syntax-checked:
+The repo has no tests of its own. Without the support package the agent can only be syntax-checked:
 
 ```bash
 python -m py_compile agent.py
