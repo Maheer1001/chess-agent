@@ -145,16 +145,28 @@ These games ended in 182 repetition draws, 180 kings-only draws, 141 checkmates 
 
 There is one deliberate difference. In positions you build yourself with `new_board(rows)`, pawns standing off their starting row count as already moved, so they don't get the two-square first move. The official framework only ever starts from the two sample positions, where every pawn is on its starting row, so the two engines agree there.
 
-## Tests
+## Testing
+
+After the [Quickstart](#quickstart) setup (Python 3.11/3.12 venv plus `pip install -r requirements.txt`), from the repo root:
 
 ```bash
-python -m pytest
+python -m pytest            # everything: 79 tests, about 30 s
+python -m pytest -m setup   # only the setup check: 16 tests, under 10 s
 ```
 
-35 tests:
+No API keys, network access or coursework files are needed. The tests only touch this repo's code (`agent.py`, `fragments/`, `play.py`, `tools/`). If a copy of the coursework framework (`extension/`) is in your working tree, `tests/conftest.py` hides it, so `agent.py` always runs on `fragments`, the same as on a fresh clone.
 
-- `tests/test_rules.py` checks the legal moves of every piece type, in both sample positions and in hand-built positions, with expected sets worked out by hand. It also covers the pawn double step, captures, en passant and queen-only promotion for both colours, pins and escaping check, every game-result rule including fivefold repetition, and the two helper functions.
-- `tests/test_agent.py` covers five win-in-one positions, including a smothered mate, a Right back-row mate, a mate by promotion and one with black to move. The agent must find the winning move. It also checks the search stats and plays one full game.
+| File | What it proves |
+|---|---|
+| `tests/test_setup.py` (marked `setup`) | **The clone is wired together.** Python is 3.11 or 3.12, ChessMaker 0.5.0 and Pillow are installed, every module and tool imports, and `agent.py` picked up `fragments` as its rules engine. Then whole games run headlessly to a real result: agent vs greedy and greedy vs agent, agent vs random, on both starting positions, with no illegal moves and no crashes. It also runs `play.py`'s command line with `--record` and renders the recording to a GIF. |
+| `tests/test_rules.py` | The `fragments` rules engine. Legal moves of every piece type in both sample positions and in hand-built ones, with expected sets worked out by hand. Also the pawn double step, captures, en passant and queen-only promotion for both colours, pins and escaping check, every game-result rule including fivefold repetition, and the two helper functions. |
+| `tests/test_evaluation.py` | The agent's own board logic. Piece values, balanced start positions, zero-sum evaluation, and incremental material change matching a full recount for every legal move in seeded random positions. Its fast `in_check` must agree with ChessMaker's attack detection. It also checks position hashing, make/unmake restoring the board exactly, and captures being ordered first. |
+| `tests/test_search.py` | The search. It returns a legal move from seeded random positions, and still does with a zero time budget. It never changes the caller's board. It finds a mate in 2 for white and for black (every defence must still lose next move) and takes a hanging queen. Its choice of mate is the same over repeated runs, and seeded baseline games replay exactly. |
+| `tests/test_agent.py` | Five win-in-one positions (smothered mate, Right back-row mate, mate by promotion, one with black to move), the search stats, and one full game. |
+
+**Determinism.** The opponents and the random test positions are seeded, so they are fully reproducible. The agent's search is time-limited, so in an open position how deep it gets, and so its move, can depend on machine speed. The tests therefore check properties that hold at any depth (legality, forced mates, material sums) rather than exact move sequences.
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the full suite on Python 3.11 and 3.12 on every push and pull request.
 
 ## Tools
 
